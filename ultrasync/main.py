@@ -34,6 +34,7 @@ from xml.etree.ElementTree import ParseError
 from zipfile import ZipFile
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 from .common import (
     AlarmScene, AreaStatus, CNAreaBank, XGZWAreaBank, ZoneStatus,
     ZoneBank, ALARM_SCENES, AREA_STATES, ZONE_STATES, CNPanelFunction,
@@ -746,6 +747,171 @@ class UltraSync(UltraSyncConfig):
 
         return not has_error
 
+    def set_zone_chime(self, zone, state=False):
+        """
+        Turns the chime of a zone on or off.  The zone is numbered from 1.
+
+        Only xGen8 panels are supported; the command is the one the panel's
+        own web page sends.
+        """
+        if not self.session_id and not self.login():
+            return False
+
+        if self.vendor is not NX595EVendor.XGEN8:
+            logger.error(
+                'Zone chime not implemented for vendor {}'.format(
+                    self.vendor))
+            return False
+
+        if not isinstance(zone, int) or zone - 1 not in self.zones.keys():
+            logger.error('{} is not valid zone'.format(zone))
+            return False
+
+        payload = {
+            'sess': self.session_id,
+            'cmd': 6,
+            'opt': int(bool(state)),
+            'zone': zone - 1,
+        }
+
+        if not self.__get('/user/zonefunction.cgi', payload=payload):
+            logger.info(
+                'Failed to set chime={} for zone {}'.format(state, zone))
+            return False
+
+        logger.info('Set chime={} for zone {}'.format(state, zone))
+        return True
+
+    def set_area_chime(self, area, state=False):
+        """
+        Turns the chime of an area on or off.  The area is numbered from 1.
+
+        Only xGen8 panels are supported.  The function numbers (10 on, 11
+        off) come from the xGen8 panel's own web page and are not confirmed
+        on other panels.
+        """
+        if not self.session_id and not self.login():
+            return False
+
+        if self.vendor is not NX595EVendor.XGEN8:
+            logger.error(
+                'Area chime not implemented for vendor {}'.format(
+                    self.vendor))
+            return False
+
+        if not isinstance(area, int) or area - 1 not in self.areas:
+            logger.error('Area {} does not exist'.format(area))
+            return False
+
+        payload = {
+            'sess': self.session_id,
+            'start': int(math.floor((area - 1) / 8)),
+            'mask': 1 << (area - 1) % 8,
+            'fnum': XGZWPanelFunction.AREA_CHIME_ON
+            if state else XGZWPanelFunction.AREA_CHIME_OFF,
+        }
+
+        if not self.__get('/user/keyfunction.cgi', payload=payload,
+                          rtype=HubResponseType.JSON):
+            logger.info(
+                'Failed to set chime={} for area {}'.format(state, area))
+            return False
+
+        logger.info('Set chime={} for area {}'.format(state, area))
+        return True
+
+    def events(self, count=10, start=None, event_type=0):
+        """
+        Returns the newest panel events, newest first, or None if the panel
+        could not be read.
+
+        The panel keeps its event log as a ring buffer.  `start` is the id
+        of the newest event to return; None means the newest event of all.
+        `event_type` selects the panel's log filter (0 is the main log).
+
+        Each event is a dictionary with these keys:
+          id: the event's position in the panel's ring buffer
+          time: when it happened, as an aware UTC datetime
+          code: the Contact ID event code, such as '401' or '302'
+          restore: True for a restore (for example an arm, which Contact ID
+                   reports as the restore of an open/close event)
+          description: the panel's own text, such as 'Turn Off Away'
+          zone, area, user: the numbers the event refers to, or None
+          user_name: the name of the user, when the event names one
+          lines: every text line of the event, without the time and date
+
+        Only xGen8 panels are supported.
+        """
+        if self.vendor is not NX595EVendor.XGEN8:
+            logger.error(
+                'Events not implemented for vendor {}'.format(self.vendor))
+            return None
+
+        if not self.session_id and not self.login():
+            return None
+
+        payload = {
+            'sess': self.session_id,
+            'count': int(count),
+            # 65535 asks the panel for its newest event
+            'start': 65535 if start is None else int(start),
+            'type': int(event_type),
+        }
+
+        response = self.__get(
+            '/user/api/events.cgi', payload=payload,
+            rtype=HubResponseType.JSON)
+        if not response or not isinstance(response.get('events'), list):
+            return None
+
+        return [UltraSync.parse_event(e) for e in response['events']]
+
+    @staticmethod
+    def parse_event(event):
+        """
+        Converts one raw event from the panel's events.cgi into the
+        dictionary described in events().
+        """
+        try:
+            text = unquote(event.get('text', ''))
+
+        except TypeError:
+            text = ''
+
+        # The panel separates the lines of an event with two spaces
+        lines = [
+            ln.strip() for ln in text.split('  ')
+            if ln.strip() and not ln.strip().startswith(('Time:', 'Date:'))]
+
+        # The panel marks some event names with trailing asterisks
+        description = lines[0].rstrip('*').strip() if lines else ''
+
+        # The panel puts the user's name on the last line of events that a
+        # user caused.  Only trust it when the event names a real user.
+        user = event.get('user')
+        user_name = lines[-1] \
+            if isinstance(user, int) and user > 0 and len(lines) > 1 \
+            else None
+
+        try:
+            when = datetime.fromtimestamp(int(event['time']), timezone.utc)
+
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            when = None
+
+        return {
+            'id': event.get('id'),
+            'time': when,
+            'code': event.get('cid_alarm'),
+            'restore': event.get('type') == 'restore',
+            'description': description,
+            'zone': event.get('sensor'),
+            'area': event.get('area'),
+            'user': user,
+            'user_name': user_name,
+            'lines': lines,
+        }
+
     def update(self, ref=None, max_age_sec=1):
         """
         Updates classmeta information
@@ -1096,6 +1262,8 @@ class UltraSync(UltraSyncConfig):
                     'chime': st_chime,
                     'exit1': st_exit1,
                     'exit2': st_exit2,
+                    'night': bool(vbank[XGZWAreaBank.NIGHT]),
+                    'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
                 },
                 'status': status,
                 'sequence': sequence,
@@ -1247,6 +1415,8 @@ class UltraSync(UltraSyncConfig):
                     'chime': st_chime,
                     'exit1': st_exit1,
                     'exit2': st_exit2,
+                    'night': bool(vbank[XGZWAreaBank.NIGHT]),
+                    'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
                 },
                 'status': status,
                 'sequence': sequence,
@@ -1397,25 +1567,27 @@ class UltraSync(UltraSyncConfig):
         This applies to the xGen, xGen8 and ZeroWire panels, whose zone
         banks are hex strings.
         """
+        return [
+            name for state_no, name in enumerate(ZONE_STATES)
+            if state_no and name and self._zone_bit(state_no, bank)]
+
+    def _zone_bit(self, state_no, bank):
+        """
+        Returns True if zone bank `state_no` is set for the zone at position
+        `bank` (starting at 0).  A missing or malformed bank reads as False.
+        This applies to the panels whose zone banks are hex strings.
+        """
+        if state_no >= len(self._zbank):
+            return False
+
         mask = 1 << bank % 8
         idx = math.floor(bank / 8) * 2
+        try:
+            return bool(int(self._zbank[state_no][idx:idx + 2] or '0', 16)
+                        & mask)
 
-        flags = []
-        for state_no, name in enumerate(ZONE_STATES):
-            if not state_no or not name or state_no >= len(self._zbank):
-                continue
-
-            try:
-                value = int(self._zbank[state_no][idx:idx + 2] or '0', 16)
-
-            except (TypeError, ValueError):
-                # A malformed bank; treat it as inactive
-                continue
-
-            if value & mask:
-                flags.append(name)
-
-        return flags
+        except (TypeError, ValueError):
+            return False
 
     def xgen_process_zones(self):
         """
@@ -1577,6 +1749,8 @@ class UltraSync(UltraSyncConfig):
                 'can_bypass': can_bypass,
                 'bank_state': self._zvbank[bank],
                 'flags': flags,
+                'bypassed': self._zone_bit(ZoneBank.XGEN8_BYPASSED, bank),
+                'chime': self._zone_bit(ZoneBank.XGEN8_CHIME, bank),
                 'sequence': sequence,
             })
         return True

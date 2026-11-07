@@ -53,6 +53,11 @@ class XGZWPanelFunction(object):
     AREA_CHIME_TOGGLE = 10
     AREA_AWAY = 15
 
+    # The panel's own web page sends 10 to turn the area chime on and 11 to
+    # turn it off (AREA_CHIME_TOGGLE is kept for compatibility)
+    AREA_CHIME_ON = 10
+    AREA_CHIME_OFF = 11
+
 
 class CNPanelFunction(object):
     """
@@ -109,7 +114,7 @@ class XGZWAreaBank(object):
     UNKWN_24 = 24
     UNKWN_25 = 25
     NIGHT = 26
-    UNKWN_27 = 27
+    WALK_TEST = 27
     UNKWN_28 = 28
     UNKWN_29 = 29
     UNKWN_30 = 30
@@ -284,6 +289,11 @@ class ZoneBank(object):
     UNKWN_15 = 15
     UNKWN_16 = 16
     BYPASS_DISABLED = 17
+
+    # On xGen8 panels, as read from the panel's own status.js: bank 3 is set
+    # while the zone is bypassed and bank 9 while its chime is on
+    XGEN8_BYPASSED = 3
+    XGEN8_CHIME = 9
 
 
 class ZoneStatus(object):
