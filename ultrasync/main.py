@@ -827,7 +827,9 @@ class UltraSync(UltraSyncConfig):
 
         The panel keeps its event log as a ring buffer.  `start` is the id
         of the newest event to return; None means the newest event of all.
-        `event_type` selects the panel's log filter (0 is the main log).
+        `event_type` selects the panel's log: 0 is the main log (it includes
+        every remote login), 1 the alarm log (alarms, troubles, arm and
+        disarm, bypasses), 2 the video log and 3 the access log.
 
         Each event is a dictionary with these keys:
           id: the event's position in the panel's ring buffer
