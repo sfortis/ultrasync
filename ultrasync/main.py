@@ -37,7 +37,8 @@ from datetime import timedelta
 from .common import (
     AlarmScene, AreaStatus, CNAreaBank, XGZWAreaBank, ZoneStatus,
     ZoneBank, ALARM_SCENES, AREA_STATES, ZONE_STATES, CNPanelFunction,
-    XGZWPanelFunction, NX595EVendor, AREA_STATUS_PROCESS_PRIORITY)
+    XGZWPanelFunction, NX595EVendor, AREA_STATUS_PROCESS_PRIORITY,
+    NO_SYSTEM_FAULTS)
 from .config import UltraSyncConfig
 from urllib.parse import unquote
 from .logger import logger
@@ -103,6 +104,10 @@ class UltraSync(UltraSyncConfig):
         # status return for older models.  If this value is set, we set it
         # here.
         self.__extra_area_status = []
+
+        # The system faults from the last area or zone update; see
+        # system_faults
+        self.__system_faults = []
 
         # Taken straight out of Interlogix ZeroWire status.js
         self.__xgzw_area_state_byte = [
@@ -599,10 +604,20 @@ class UltraSync(UltraSyncConfig):
                         'fnum': XGZWPanelFunction.AREA_AWAY,
                     })
 
-                else:   # AlarmScene.DISARMED
+                elif state == AlarmScene.DISARMED:
                     payload.update({
                         'fnum': XGZWPanelFunction.AREA_DISARM,
                     })
+
+                else:
+                    # Fire, medical and panic have no known function number
+                    # on these panels.  Refuse them; sending the disarm
+                    # function instead would disarm the area.
+                    logger.error(
+                        '{} is not supported on {} panels'.format(
+                            state, self.vendor))
+                    has_error = True
+                    continue
 
                 rtype = HubResponseType.JSON
 
@@ -757,6 +772,17 @@ class UltraSync(UltraSyncConfig):
         self.__updated = datetime.now()
         return True
 
+    @property
+    def system_faults(self):
+        """
+        Returns the system faults the panel reported on its last poll, such
+        as a low panel battery or a mains failure.  An empty list means the
+        panel reported no faults.
+        """
+        return [
+            f for f in self.__system_faults
+            if f and f != NO_SYSTEM_FAULTS]
+
     def details(self, max_age_sec=1):
         """
         Arranges the areas, zones, history, and outputs into an easy to manage dictionary
@@ -774,6 +800,7 @@ class UltraSync(UltraSyncConfig):
             'areas': [a for a in self.areas.values()],
             'outputs': [o for o in self.outputs.values()],
             'history_data': [h for h in self.history_data.values()],
+            'system_faults': self.system_faults,
             'date': self.__updated.strftime('%Y-%m-%d %H:%M:%S'),
         }
 
@@ -1360,6 +1387,36 @@ class UltraSync(UltraSyncConfig):
         """
         return getattr(self, '{}_process_zones'.format(self.vendor))()
 
+    def _zone_flags(self, bank):
+        """
+        Returns the name of every condition the panel reports for a zone,
+        such as Low Battery or Tamper.  Not Ready is left out, since it is
+        already the zone status.  Every bank the panel sent is read, not
+        only the first 18.
+
+        This applies to the xGen, xGen8 and ZeroWire panels, whose zone
+        banks are hex strings.
+        """
+        mask = 1 << bank % 8
+        idx = math.floor(bank / 8) * 2
+
+        flags = []
+        for state_no, name in enumerate(ZONE_STATES):
+            if not state_no or not name or state_no >= len(self._zbank):
+                continue
+
+            try:
+                value = int(self._zbank[state_no][idx:idx + 2] or '0', 16)
+
+            except (TypeError, ValueError):
+                # A malformed bank; treat it as inactive
+                continue
+
+            if value & mask:
+                flags.append(name)
+
+        return flags
+
     def xgen_process_zones(self):
         """
         Updates our zone/sensor information based on new configuration
@@ -1424,10 +1481,14 @@ class UltraSync(UltraSyncConfig):
                 # Increment our index
                 bank_no += 1
 
+            # Every condition the panel reports for this zone
+            flags = self._zone_flags(bank)
+
             # Update our sequence
             sequence = UltraSync.next_sequence(
                 zone.get('sequence', 0)) \
                 if zone.get('bank_state') != self._zvbank[bank] \
+                or zone.get('flags') != flags \
                 else zone.get('sequence', 0)
 
             zone.update({
@@ -1435,6 +1496,7 @@ class UltraSync(UltraSyncConfig):
                 'status': status,
                 'can_bypass': can_bypass,
                 'bank_state': self._zvbank[bank],
+                'flags': flags,
                 'sequence': sequence,
             })
         return True
@@ -1499,10 +1561,14 @@ class UltraSync(UltraSyncConfig):
                 # Increment our index
                 bank_no += 1
 
+            # Every condition the panel reports for this zone
+            flags = self._zone_flags(bank)
+
             # Update our sequence
             sequence = UltraSync.next_sequence(
                 zone.get('sequence', 0)) \
                 if zone.get('bank_state') != self._zvbank[bank] \
+                or zone.get('flags') != flags \
                 else zone.get('sequence', 0)
 
             zone.update({
@@ -1510,6 +1576,7 @@ class UltraSync(UltraSyncConfig):
                 'status': status,
                 'can_bypass': can_bypass,
                 'bank_state': self._zvbank[bank],
+                'flags': flags,
                 'sequence': sequence,
             })
         return True
@@ -1575,10 +1642,14 @@ class UltraSync(UltraSyncConfig):
                 # Increment our index
                 bank_no += 1
 
+            # Every condition the panel reports for this zone
+            flags = self._zone_flags(bank)
+
             # Update our sequence
             sequence = UltraSync.next_sequence(
                 zone.get('sequence', 0)) \
                 if zone.get('bank_state') != self._zvbank[bank] \
+                or zone.get('flags') != flags \
                 else zone.get('sequence', 0)
 
             zone.update({
@@ -1586,6 +1657,7 @@ class UltraSync(UltraSyncConfig):
                 'status': status,
                 'can_bypass': can_bypass,
                 'bank_state': self._zvbank[bank],
+                'flags': flags,
                 'sequence': sequence,
             })
         return True
@@ -1866,6 +1938,7 @@ class UltraSync(UltraSyncConfig):
         # Store our Fault Status (if set)
         self.__extra_area_status = \
             [unquote(e).strip() for e in response.get('system', [])]
+        self.__system_faults = list(self.__extra_area_status)
 
         # Update our bank states
         self._store_area_bank_state(bank, response['bankstates'])
@@ -1917,6 +1990,7 @@ class UltraSync(UltraSyncConfig):
         # Store our Fault Status (if set)
         self.__extra_area_status = \
             [unquote(e).strip() for e in response.get('system', [])]
+        self.__system_faults = list(self.__extra_area_status)
 
         # Update our bank states
         self._store_area_bank_state(bank, response['bankstates'])
@@ -1973,6 +2047,7 @@ class UltraSync(UltraSyncConfig):
         # Store our Fault Status (if set)
         self.__extra_area_status = \
             [unquote(e).strip() for e in response.get('system', [])]
+        self.__system_faults = list(self.__extra_area_status)
 
         # Update our bank states
         self._store_area_bank_state(bank, response['bankstates'])
@@ -2042,6 +2117,8 @@ class UltraSync(UltraSyncConfig):
             # worry... set our flag to None and move along...
             self.__extra_area_status = []
 
+        self.__system_faults = list(self.__extra_area_status)
+
         try:
             bank_state = [int(response.find('stat{}'.format(x)).text)
                           for x in range(0, 17)]
@@ -2097,6 +2174,13 @@ class UltraSync(UltraSyncConfig):
         # Update our bank states
         self._zbank[bank] = response['bankstates']
 
+        if 'system' in response:
+            # The panel sends its system faults with zone updates too; the
+            # panel's own web page refreshes its fault list from here.  The
+            # area status keeps using the list from the last area update.
+            self.__system_faults = \
+                [unquote(e).strip() for e in response['system']]
+
         # Convert Hex time to Local Date Time
         response['time'] = datetime.fromtimestamp(
             int(response['time'], 16)).strftime('%Y-%m-%d %H:%M:%S')
@@ -2139,6 +2223,13 @@ class UltraSync(UltraSyncConfig):
         # Update our bank states
         self._zbank[bank] = response['bankstates']
 
+        if 'system' in response:
+            # The panel sends its system faults with zone updates too; the
+            # panel's own web page refreshes its fault list from here.  The
+            # area status keeps using the list from the last area update.
+            self.__system_faults = \
+                [unquote(e).strip() for e in response['system']]
+
         # Convert Hex time to Local Date Time
         response['time'] = datetime.fromtimestamp(
             int(response['time'], 16)).strftime('%Y-%m-%d %H:%M:%S')
@@ -2180,6 +2271,13 @@ class UltraSync(UltraSyncConfig):
 
         # Update our bank states (by coverting it back to binary)
         self._zbank[bank] = response['bankstates']
+
+        if 'system' in response:
+            # The panel sends its system faults with zone updates too; the
+            # panel's own web page refreshes its fault list from here.  The
+            # area status keeps using the list from the last area update.
+            self.__system_faults = \
+                [unquote(e).strip() for e in response['system']]
 
         # Convert Hex time to Local Date Time
         response['time'] = datetime.fromtimestamp(

@@ -179,10 +179,10 @@ class AreaStatus(object):
     DELAY_ENTRY = 'Entry Delay'
 
     SENSOR_BYPASS = 'Sensor Bypass'
-    SENSOR_TROUBLE = 'Sensor Trouble',
-    SENSOR_TAMPER = 'Sensor Tamper',
-    SENSOR_BATTERY = 'Sensor Low Battery',
-    SENSOR_SUPERVISION = 'Sensor Supervision',
+    SENSOR_TROUBLE = 'Sensor Trouble'
+    SENSOR_TAMPER = 'Sensor Tamper'
+    SENSOR_BATTERY = 'Sensor Low Battery'
+    SENSOR_SUPERVISION = 'Sensor Supervision'
 
     NOT_READY = 'Not Ready'
 
@@ -293,25 +293,54 @@ class ZoneStatus(object):
 
     READY = 'Ready'
     NOT_READY = 'Not Ready'
+    TAMPER = 'Tamper'
+    TROUBLE = 'Trouble'
+    INHIBITED = 'Inhibited'
+    ALARM = 'Alarm'
+    LOW_BATTERY = 'Low Battery'
+    SUPERVISION_FAULT = 'Supervision Fault'
+    TEST_FAIL = 'Test Fail'
+    ENTRY_DELAY = 'Entry Delay'
+    TEST_ACTIVE = 'Test Active'
+    ACTIVITY_FAIL = 'Activity Fail'
+    ANTIMASK = 'Antimask'
+    MAINS_FAILURE = 'Mains Failure'
+    RF_JAM = 'RF Jam'
+    FORCED_DOOR = 'Forced Door'
+    PROPPED_DOOR = 'Propped Door'
 
 
 ZONE_STATES = (
-    ZoneStatus.NOT_READY,
-    'Tamper',
-    'Trouble',
-    '',
-    'Inhibited',
-    'Alarm',
-    'Low Battery',
-    'Supervision Fault',
-    'Test Fail',
-    '',
-    'Entry Delay',
-    '',
-    'Test Active',
-    'Activity Fail',
-    'Antimask',
+    # The index is the zone bank number.  The names match the zoneStates
+    # array the panel itself uses in its language file (eng_eu.js).  Empty
+    # entries are banks that are not a condition (bypass, chime and so on).
+    ZoneStatus.NOT_READY,           # bank index 0
+    ZoneStatus.TAMPER,              # bank index 1
+    ZoneStatus.TROUBLE,             # bank index 2
+    '',                             # bank index 3
+    ZoneStatus.INHIBITED,           # bank index 4
+    ZoneStatus.ALARM,               # bank index 5
+    ZoneStatus.LOW_BATTERY,         # bank index 6
+    ZoneStatus.SUPERVISION_FAULT,   # bank index 7
+    ZoneStatus.TEST_FAIL,           # bank index 8
+    '',                             # bank index 9
+    ZoneStatus.ENTRY_DELAY,         # bank index 10
+    '',                             # bank index 11
+    ZoneStatus.TEST_ACTIVE,         # bank index 12
+    ZoneStatus.ACTIVITY_FAIL,       # bank index 13
+    ZoneStatus.ANTIMASK,            # bank index 14
+    '',                             # bank index 15
+    '',                             # bank index 16
+    '',                             # bank index 17
+    '',                             # bank index 18
+    ZoneStatus.MAINS_FAILURE,       # bank index 19
+    ZoneStatus.RF_JAM,              # bank index 20
+    ZoneStatus.FORCED_DOOR,         # bank index 21
+    ZoneStatus.PROPPED_DOOR,        # bank index 22
 )
+
+# The text some panels send in place of an empty system fault list
+NO_SYSTEM_FAULTS = 'No System Faults'
 
 
 class AlarmScene(object):
