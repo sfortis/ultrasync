@@ -111,7 +111,8 @@ class XGZWAreaBank(object):
     UNKWN_14 = 14
     UNKWN_15 = 15
     UNKWN_16 = 16
-    # Set, together with byte 19, while the siren sounds after function 13
+    # Set while the siren sounds after function 13 (byte 19 is set too, but
+    # it is also set alone by function 19, keypad sound on)
     SIREN = 17
     CHIME = 18
     UNKWN_19 = 19

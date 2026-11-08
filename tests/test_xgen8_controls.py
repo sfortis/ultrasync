@@ -192,14 +192,17 @@ def test_xgen8_area_chime_command(mock_post):
 @mock.patch('requests.Session.post')
 def test_xgen8_area_siren_state(mock_post):
     """
-    The siren state of an area comes from bytes 17 and 19 of its status
+    The siren state of an area comes from byte 17 of its status; byte 19
+    alone (a keypad beep) does not count
     """
     uobj = _login(mock_post)
     assert uobj.areas[0]['states']['siren'] is False
 
-    for byte in (17, 19):
-        uobj = _login(mock_post, '00' * byte + '01' + '00' * (39 - byte))
-        assert uobj.areas[0]['states']['siren'] is True
+    uobj = _login(mock_post, '00' * 17 + '01' + '00' * 22)
+    assert uobj.areas[0]['states']['siren'] is True
+
+    uobj = _login(mock_post, '00' * 19 + '01' + '00' * 20)
+    assert uobj.areas[0]['states']['siren'] is False
 
 
 @mock.patch('requests.Session.post')

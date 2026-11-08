@@ -1312,10 +1312,11 @@ class UltraSync(UltraSyncConfig):
             })
 
             if self.vendor is NX595EVendor.XGEN8:
-                # Bytes 17 and 19 were seen set while the siren sounded on an
-                # xGen8 panel; their meaning on other panels is not known
-                area['states']['siren'] = bool(
-                    vbank[XGZWAreaBank.SIREN] or vbank[XGZWAreaBank.UNKWN_19])
+                # Byte 17 was seen set only while the siren sounded on an
+                # xGen8 panel.  Byte 19 is also set then, but function 19
+                # (keypad sound on) sets it alone with a keypad beep, so it is
+                # not used.  The meaning on other panels is not known.
+                area['states']['siren'] = bool(vbank[XGZWAreaBank.SIREN])
 
         return True
 
