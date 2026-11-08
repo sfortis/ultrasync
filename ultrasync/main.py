@@ -826,8 +826,9 @@ class UltraSync(UltraSyncConfig):
 
         Only xGen8 panels are supported.  Turning the siren on sends function
         13 (start the non-fire siren); turning it off sends function 4, which
-        silences the siren without disarming the area.  The panel stops the
-        siren by itself after its programmed siren time.
+        silenced the siren in tests on a disarmed area.  Whether function 4
+        leaves an armed area armed has not been confirmed.  The panel stops
+        the siren by itself after its programmed siren time.
         """
         if not self.session_id and not self.login():
             return False
@@ -1305,12 +1306,16 @@ class UltraSync(UltraSyncConfig):
                     'exit2': st_exit2,
                     'night': bool(vbank[XGZWAreaBank.NIGHT]),
                     'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
-                    'siren': bool(vbank[XGZWAreaBank.SIREN]
-                                  or vbank[XGZWAreaBank.UNKWN_19]),
                 },
                 'status': status,
                 'sequence': sequence,
             })
+
+            if self.vendor is NX595EVendor.XGEN8:
+                # Bytes 17 and 19 were seen set while the siren sounded on an
+                # xGen8 panel; their meaning on other panels is not known
+                area['states']['siren'] = bool(
+                    vbank[XGZWAreaBank.SIREN] or vbank[XGZWAreaBank.UNKWN_19])
 
         return True
 
@@ -1460,8 +1465,6 @@ class UltraSync(UltraSyncConfig):
                     'exit2': st_exit2,
                     'night': bool(vbank[XGZWAreaBank.NIGHT]),
                     'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
-                    'siren': bool(vbank[XGZWAreaBank.SIREN]
-                                  or vbank[XGZWAreaBank.UNKWN_19]),
                 },
                 'status': status,
                 'sequence': sequence,
