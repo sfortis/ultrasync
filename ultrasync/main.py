@@ -820,6 +820,45 @@ class UltraSync(UltraSyncConfig):
         logger.info('Set chime={} for area {}'.format(state, area))
         return True
 
+    def set_siren(self, area, state=False):
+        """
+        Starts or silences the siren of an area.  The area is numbered from 1.
+
+        Only xGen8 panels are supported.  Turning the siren on sends function
+        13 (start the non-fire siren); turning it off sends function 4, which
+        silences the siren without disarming the area.  The panel stops the
+        siren by itself after its programmed siren time.
+        """
+        if not self.session_id and not self.login():
+            return False
+
+        if self.vendor is not NX595EVendor.XGEN8:
+            logger.error(
+                'Siren control not implemented for vendor {}'.format(
+                    self.vendor))
+            return False
+
+        if not isinstance(area, int) or area - 1 not in self.areas:
+            logger.error('Area {} does not exist'.format(area))
+            return False
+
+        payload = {
+            'sess': self.session_id,
+            'start': int(math.floor((area - 1) / 8)),
+            'mask': 1 << (area - 1) % 8,
+            'fnum': XGZWPanelFunction.AREA_SIREN
+            if state else XGZWPanelFunction.AREA_SIREN_MUTE,
+        }
+
+        if not self.__get('/user/keyfunction.cgi', payload=payload,
+                          rtype=HubResponseType.JSON):
+            logger.info(
+                'Failed to set siren={} for area {}'.format(state, area))
+            return False
+
+        logger.info('Set siren={} for area {}'.format(state, area))
+        return True
+
     def events(self, count=10, start=None, event_type=0):
         """
         Returns the newest panel events, newest first, or None if the panel
@@ -1266,6 +1305,8 @@ class UltraSync(UltraSyncConfig):
                     'exit2': st_exit2,
                     'night': bool(vbank[XGZWAreaBank.NIGHT]),
                     'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
+                    'siren': bool(vbank[XGZWAreaBank.SIREN]
+                                  or vbank[XGZWAreaBank.UNKWN_19]),
                 },
                 'status': status,
                 'sequence': sequence,
@@ -1419,6 +1460,8 @@ class UltraSync(UltraSyncConfig):
                     'exit2': st_exit2,
                     'night': bool(vbank[XGZWAreaBank.NIGHT]),
                     'walk_test': bool(vbank[XGZWAreaBank.WALK_TEST]),
+                    'siren': bool(vbank[XGZWAreaBank.SIREN]
+                                  or vbank[XGZWAreaBank.UNKWN_19]),
                 },
                 'status': status,
                 'sequence': sequence,

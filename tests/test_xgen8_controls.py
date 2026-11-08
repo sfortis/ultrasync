@@ -96,10 +96,10 @@ def _page(name, var, value):
     return page.encode('utf-8')
 
 
-def _login(mock_post):
+def _login(mock_post, area_status=AREA_STATUS):
     """Log in to the mocked panel and return the UltraSync object."""
     mock_post.side_effect = (
-        _response(_page('area.htm', 'areaStatus', [AREA_STATUS])),
+        _response(_page('area.htm', 'areaStatus', [area_status])),
         _response(_page('zones.htm', 'zoneStatus', ZONE_STATUS)))
 
     uobj = UltraSync()
@@ -187,6 +187,48 @@ def test_xgen8_area_chime_command(mock_post):
     mock_post.reset_mock()
     assert uobj.set_area_chime(area=9, state=True) is False
     assert mock_post.call_count == 0
+
+
+@mock.patch('requests.Session.post')
+def test_xgen8_area_siren_state(mock_post):
+    """
+    The siren state of an area comes from bytes 17 and 19 of its status
+    """
+    uobj = _login(mock_post)
+    assert uobj.areas[0]['states']['siren'] is False
+
+    for byte in (17, 19):
+        uobj = _login(mock_post, '00' * byte + '01' + '00' * (39 - byte))
+        assert uobj.areas[0]['states']['siren'] is True
+
+
+@mock.patch('requests.Session.post')
+def test_xgen8_siren_command(mock_post):
+    """
+    The siren is started with function 13 and silenced with function 4
+    """
+    uobj = _login(mock_post)
+    mock_post.side_effect = None
+    mock_post.return_value = _response(b'{"result": 0}')
+
+    assert uobj.set_siren(area=1, state=True) is True
+    data = mock_post.call_args[1]['data']
+    assert mock_post.call_args[0][0] == 'http://zerowire/user/keyfunction.cgi'
+    assert data['fnum'] == 13
+    assert data['start'] == 0
+    assert data['mask'] == 1
+
+    assert uobj.set_siren(area=1, state=False) is True
+    assert mock_post.call_args[1]['data']['fnum'] == 4
+
+    # An unknown area sends nothing
+    mock_post.reset_mock()
+    assert uobj.set_siren(area=9, state=True) is False
+    assert mock_post.call_count == 0
+
+    # A panel that does not answer is reported as a failure
+    mock_post.return_value = _response(b'')
+    assert uobj.set_siren(area=1, state=True) is False
 
 
 @mock.patch('requests.Session.post')

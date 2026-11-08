@@ -58,6 +58,13 @@ class XGZWPanelFunction(object):
     AREA_CHIME_ON = 10
     AREA_CHIME_OFF = 11
 
+    # Siren control.  The numbers come from the HSYCO xGenConnect I/O server
+    # documentation; 13 (start the non-fire siren) and 4 ("mute status but
+    # leave armed", which silences the siren) were confirmed on an xGenConnect
+    # (xGen8) panel.  The panel's own web page sends neither.
+    AREA_SIREN_MUTE = 4
+    AREA_SIREN = 13
+
 
 class CNPanelFunction(object):
     """
@@ -104,7 +111,8 @@ class XGZWAreaBank(object):
     UNKWN_14 = 14
     UNKWN_15 = 15
     UNKWN_16 = 16
-    UNKWN_17 = 17
+    # Set, together with byte 19, while the siren sounds after function 13
+    SIREN = 17
     CHIME = 18
     UNKWN_19 = 19
     UNKWN_20 = 20
