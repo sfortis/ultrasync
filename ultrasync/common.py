@@ -302,6 +302,10 @@ class ZoneBank(object):
     # On xGen8 panels, as read from the panel's own status.js: bank 3 is set
     # while the zone is bypassed and bank 9 while its chime is on
     XGEN8_BYPASSED = 3
+    # Bank 4 ("Inhibited" in the panel's language file) was seen set on an
+    # xGen8 panel for a zone that the panel bypassed by itself because it was
+    # open when the area was armed; bank 3 stayed clear
+    XGEN8_AUTO_BYPASSED = 4
     XGEN8_CHIME = 9
 
 

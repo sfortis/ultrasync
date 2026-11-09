@@ -1799,6 +1799,8 @@ class UltraSync(UltraSyncConfig):
                 'bank_state': self._zvbank[bank],
                 'flags': flags,
                 'bypassed': self._zone_bit(ZoneBank.XGEN8_BYPASSED, bank),
+                'auto_bypassed': self._zone_bit(
+                    ZoneBank.XGEN8_AUTO_BYPASSED, bank),
                 'chime': self._zone_bit(ZoneBank.XGEN8_CHIME, bank),
                 'sequence': sequence,
             })

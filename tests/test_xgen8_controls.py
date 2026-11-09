@@ -42,9 +42,10 @@ logging.disable(logging.CRITICAL)
 ULTRASYNC_TEST_VAR_DIR = \
     join(dirname(__file__), 'var', NX595EVendor.XGEN8, 'nxg8zbo')
 
-# Zone 1 is bypassed (bank 3) and zone 2 has its chime on (bank 9)
+# Zone 1 is bypassed (bank 3), zone 2 has its chime on (bank 9) and zone 3
+# was bypassed by the panel when the area was armed (bank 4)
 ZONE_STATUS = [
-    'D405', '0000', '0000', '0100', '0000', '0000', '0000', '0000',
+    'D405', '0000', '0000', '0100', '0400', '0000', '0000', '0000',
     '0000', '0200', '0000', '0040', '0000', '0000', '0000', '0000',
     '0100', '0000',
 ]
@@ -132,6 +133,11 @@ def test_xgen8_zone_bypass_and_chime_state(mock_post):
 
     assert uobj.zones[1]['bypassed'] is False
     assert uobj.zones[1]['chime'] is True
+
+    # A zone the panel bypassed at arming is not reported as bypassed
+    assert uobj.zones[0]['auto_bypassed'] is False
+    assert uobj.zones[2]['auto_bypassed'] is True
+    assert uobj.zones[2]['bypassed'] is False
 
     # Bypass and chime are not conditions, so they are not in the flags
     assert uobj.zones[0]['flags'] == []
