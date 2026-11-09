@@ -826,9 +826,9 @@ class UltraSync(UltraSyncConfig):
 
         Only xGen8 panels are supported.  Turning the siren on sends function
         13 (start the non-fire siren); turning it off sends function 4, which
-        silenced the siren in tests on a disarmed area.  Whether function 4
-        leaves an armed area armed has not been confirmed.  The panel stops
-        the siren by itself after its programmed siren time.
+        silenced the siren in tests on an xGen8 panel and left an area that
+        was armed Away still armed.  The panel stops the siren by itself after
+        its programmed siren time.
         """
         if not self.session_id and not self.login():
             return False
