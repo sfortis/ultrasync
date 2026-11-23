@@ -484,15 +484,64 @@ class UltraSync(UltraSyncConfig):
                     },
                 })
 
+        # More pages, each only on the panels whose own menu or scripts use
+        # it.  A page the panel or this user can't open is skipped without
+        # logging in again.  Pages holding PINs, access cards, contact
+        # details or network settings are left out on purpose.
+        extra = {}
+        if self.vendor in (NX595EVendor.XGEN, NX595EVendor.XGEN8):
+            # The newest history events, as the History page reads them
+            extra['events.json'] = {
+                'path': '/user/api/events.cgi',
+                'payload': {
+                    'sess': self.session_id,
+                    'count': 10,
+                    'start': 65535,
+                    'type': 0,
+                },
+            }
+
+        if self.vendor == NX595EVendor.XGEN8:
+            # Access control doors and their live state
+            extra['doors.htm'] = {'path': '/user/doors.htm'}
+            extra['dstate.json'] = {'path': '/user/dstate.json'}
+
+        elif self.vendor == NX595EVendor.COMNAV:
+            # The newest history event (65535 asks for the most recent)
+            extra['history.xml'] = {
+                'path': '/user/history.xml',
+                'payload': {
+                    'sess': self.session_id,
+                    'event': 65535,
+                },
+            }
+
+            # The installer's Features, Outputs and Name Editor pages
+            extra['config1.htm'] = {'path': '/protect/config1.htm'}
+            extra['config7.htm'] = {'path': '/protect/config7.htm'}
+            extra['textnames.htm'] = {'path': '/muser/textnames.htm'}
+
+        for kwargs in extra.values():
+            kwargs['auth_on_fail'] = False
+
+        urls.update(extra)
+
+        # The pages to capture.  Each saved page adds the scripts it loads
+        # (such as the language file) to the end of this list.
+        pages = list(urls.items())
+
         progress_ratio = 100.0 / len(urls)
         progress_track = 0.0
 
         if compress:
             with ZipFile('{}.zip'.format(path), 'w') as myzip:
-                for to_file, kwargs in urls.items():
+                for to_file, kwargs in pages:
                     response = self.__get(rtype=HubResponseType.RAW, **kwargs)
                     if not response:
                         continue
+
+                    # Queue up any scripts this page loads
+                    UltraSync._dump_scripts(response, pages)
                     logger.debug('Adding {} ({} bytes) to {}'.format(
                         to_file, len(response),
                         '{}.zip'.format(os.path.basename(path))))
@@ -500,7 +549,9 @@ class UltraSync(UltraSyncConfig):
                         os.path.join(
                             os.path.basename(path), to_file), response)
 
-                    if progress:
+                    # Scripts found along the way are not counted in the
+                    # progress bar, so it can never run past 100%
+                    if progress and to_file in urls:
                         progress.update(progress_ratio)
                         progress_track += progress_ratio
 
@@ -508,10 +559,13 @@ class UltraSync(UltraSyncConfig):
             # Create our dump directory once; every captured page goes in it
             os.makedirs(path, mode=mode, exist_ok=True)
 
-            for to_file, kwargs in urls.items():
+            for to_file, kwargs in pages:
                 response = self.__get(rtype=HubResponseType.RAW, **kwargs)
                 if not response:
                     continue
+
+                # Queue up any scripts this page loads
+                UltraSync._dump_scripts(response, pages)
 
                 with open(os.path.join(path, to_file), 'w',
                           encoding=self.panel_encoding) as fp:
@@ -522,7 +576,9 @@ class UltraSync(UltraSyncConfig):
 
                     fp.write(response)
 
-                    if progress:
+                    # Scripts found along the way are not counted in the
+                    # progress bar, so it can never run past 100%
+                    if progress and to_file in urls:
                         progress.update(progress_ratio)
                         progress_track += progress_ratio
 
@@ -531,6 +587,27 @@ class UltraSync(UltraSyncConfig):
             progress.update(100.001 - progress_track)
 
         return
+
+    @staticmethod
+    def _dump_scripts(response, pages):
+        """Add each script a captured page loads to the dump's page list."""
+        # Paths and file names already listed are skipped, so nothing is
+        # read twice and no saved file is replaced
+        paths = [kwargs['path'] for _, kwargs in pages]
+        names = [name for name, _ in pages]
+
+        for script in re.findall(r'script src="(/[^"]+\.js)"', response):
+            name = os.path.basename(script)
+            if script in paths or name in names:
+                continue
+
+            pages.append((name, {
+                'path': script,
+                'method': 'GET',
+                'auth_on_fail': False,
+            }))
+            paths.append(script)
+            names.append(name)
 
     def set(self, area=1, state=AlarmScene.DISARMED):
         """
@@ -1261,24 +1338,24 @@ class UltraSync(UltraSyncConfig):
                         if not vbank[XGZWAreaBank.UNKWN_01] \
                         else AreaStatus.NOT_READY_FORCEABLE
 
-            if vbank[XGZWAreaBank.UNKWN_08] or \
-                    vbank[XGZWAreaBank.UNKWN_09] or \
-                    vbank[XGZWAreaBank.UNKWN_10] or \
-                    vbank[XGZWAreaBank.UNKWN_11]:
+            if vbank[XGZWAreaBank.ALARM_FIRE] or \
+                    vbank[XGZWAreaBank.ALARM_PANIC] or \
+                    vbank[XGZWAreaBank.ALARM_BURGLAR] or \
+                    vbank[XGZWAreaBank.ALARM_MEDICAL]:
 
                 # Assign priority to 1
                 priority = 1
 
-            elif vbank[XGZWAreaBank.UNKWN_33] or \
-                    vbank[XGZWAreaBank.UNKWN_34] or \
-                    vbank[XGZWAreaBank.UNKWN_35] or \
-                    vbank[XGZWAreaBank.UNKWN_36] or \
+            elif vbank[XGZWAreaBank.SENSOR_TROUBLE] or \
+                    vbank[XGZWAreaBank.SENSOR_TAMPER] or \
+                    vbank[XGZWAreaBank.SENSOR_BATTERY] or \
+                    vbank[XGZWAreaBank.SENSOR_SUPERVISION] or \
                     self.__extra_area_status:
 
                 # Assign priority to 2
                 priority = 2
 
-            elif st_partial or vbank[XGZWAreaBank.UNKWN_32]:
+            elif st_partial or vbank[XGZWAreaBank.SENSOR_BYPASS]:
                 # Assign priority to 3
                 priority = 3
 
@@ -1286,7 +1363,7 @@ class UltraSync(UltraSyncConfig):
                 # Assign priority to 4
                 priority = 4
 
-            elif not vbank[XGZWAreaBank.UNKWN_00]:
+            elif not vbank[XGZWAreaBank.READY]:
                 # Assign priority to 5
                 priority = 5
 
@@ -1421,24 +1498,24 @@ class UltraSync(UltraSyncConfig):
                         if not vbank[XGZWAreaBank.UNKWN_01] \
                         else AreaStatus.NOT_READY_FORCEABLE
 
-            if vbank[XGZWAreaBank.UNKWN_08] or \
-                    vbank[XGZWAreaBank.UNKWN_09] or \
-                    vbank[XGZWAreaBank.UNKWN_10] or \
-                    vbank[XGZWAreaBank.UNKWN_11]:
+            if vbank[XGZWAreaBank.ALARM_FIRE] or \
+                    vbank[XGZWAreaBank.ALARM_PANIC] or \
+                    vbank[XGZWAreaBank.ALARM_BURGLAR] or \
+                    vbank[XGZWAreaBank.ALARM_MEDICAL]:
 
                 # Assign priority to 1
                 priority = 1
 
-            elif vbank[XGZWAreaBank.UNKWN_33] or \
-                    vbank[XGZWAreaBank.UNKWN_34] or \
-                    vbank[XGZWAreaBank.UNKWN_35] or \
-                    vbank[XGZWAreaBank.UNKWN_36] \
+            elif vbank[XGZWAreaBank.SENSOR_TROUBLE] or \
+                    vbank[XGZWAreaBank.SENSOR_TAMPER] or \
+                    vbank[XGZWAreaBank.SENSOR_BATTERY] or \
+                    vbank[XGZWAreaBank.SENSOR_SUPERVISION] \
                     or self.__extra_area_status:
 
                 # Assign priority to 2
                 priority = 2
 
-            elif st_partial or vbank[XGZWAreaBank.UNKWN_32]:
+            elif st_partial or vbank[XGZWAreaBank.SENSOR_BYPASS]:
                 # Assign priority to 3
                 priority = 3
 
@@ -1446,7 +1523,7 @@ class UltraSync(UltraSyncConfig):
                 # Assign priority to 4
                 priority = 4
 
-            elif not vbank[XGZWAreaBank.UNKWN_00]:
+            elif not vbank[XGZWAreaBank.READY]:
                 # Assign priority to 5
                 priority = 5
 
@@ -1553,20 +1630,24 @@ class UltraSync(UltraSyncConfig):
                     # Update
                     status = AreaStatus.NOT_READY
 
-            if vbank[CNAreaBank.UNKWN_03] or vbank[CNAreaBank.UNKWN_04] or \
-                    vbank[CNAreaBank.UNKWN_05] or vbank[CNAreaBank.UNKWN_06]:
+            if vbank[CNAreaBank.ALARM_FIRE] or \
+                    vbank[CNAreaBank.ALARM_BURGLAR] or \
+                    vbank[CNAreaBank.ALARM_PANIC] or \
+                    vbank[CNAreaBank.ALARM_MEDICAL]:
 
                 # Assign priority to 1
                 priority = 1
 
-            elif vbank[CNAreaBank.UNKWN_11] or vbank[CNAreaBank.UNKWN_12] or \
-                    vbank[CNAreaBank.UNKWN_13] or vbank[CNAreaBank.UNKWN_14] \
+            elif vbank[CNAreaBank.SENSOR_TROUBLE] or \
+                    vbank[CNAreaBank.SENSOR_TAMPER] or \
+                    vbank[CNAreaBank.SENSOR_BATTERY] or \
+                    vbank[CNAreaBank.SENSOR_SUPERVISION] \
                     or self.__extra_area_status:
 
                 # Assign priority to 2
                 priority = 2
 
-            elif vbank[CNAreaBank.UNKWN_10] or st_partial:
+            elif vbank[CNAreaBank.SENSOR_BYPASS] or st_partial:
                 # Assign priority to 3
                 priority = 3
 
@@ -1574,7 +1655,7 @@ class UltraSync(UltraSyncConfig):
                 # Assign priority to 4
                 priority = 4
 
-            elif vbank[CNAreaBank.UNKWN_02]:
+            elif vbank[CNAreaBank.READY]:
                 # Assign priority to 5
                 priority = 5
 
