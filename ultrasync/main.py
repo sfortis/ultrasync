@@ -24,6 +24,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import logging
 import requests
 import json
 import re
@@ -3125,6 +3126,22 @@ class UltraSync(UltraSyncConfig):
 
         return response
 
+    def __masked(self, text):
+        """
+        Return a panel response with the session identifier hidden, so the
+        trace log can not be used to take over the panel session
+        """
+        # The login reply hands out the session as
+        #  function getSession(){return "A2D6C62695D705D8";}
+        text = re.sub(
+            r'(function getSession\(\)[^"]+")[^"]+(")', r'\1***\2', text)
+
+        if self.session_id:
+            # Other pages can repeat the session that is already in use
+            text = text.replace(self.session_id, '***')
+
+        return text
+
     def __get(self, path, payload=None, rtype=HubResponseType.RAW,
               method='POST', auth_on_fail=True):
         """
@@ -3166,8 +3183,12 @@ class UltraSync(UltraSyncConfig):
 
             logger.trace('URL: {}, status_code: {}'.format(
                 url, request.status_code))
-            logger.trace('URL: {}, response:\n{}'.format(
-                url, request.content.decode(self.panel_encoding)))
+            # Masking costs a regular expression on every poll, so it only
+            # runs when the trace level is enabled
+            if logger.isEnabledFor(logging.TRACE):
+                logger.trace('URL: {}, response:\n{}'.format(
+                    url, self.__masked(
+                        request.content.decode(self.panel_encoding))))
 
         except requests.exceptions.ReadTimeout:
             logger.error('Connection read timeout')

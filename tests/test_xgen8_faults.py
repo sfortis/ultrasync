@@ -181,3 +181,29 @@ def test_xgen8_unsupported_alarm_scenes(mock_post):
         assert uobj.set_alarm(state=scene) is False
         # Nothing was sent to the panel
         assert mock_post.call_count == 0
+
+
+@mock.patch('requests.Session.post')
+def test_trace_log_hides_session(mock_post, caplog):
+    """
+    The trace log of panel responses never shows the session identifier
+    """
+    import logging
+
+    # Other test modules disable logging for the whole process
+    logging.disable(logging.NOTSET)
+    try:
+        mock_post.side_effect = (
+            _response(_fixture('area.htm')), _response(_zones_page()))
+
+        with caplog.at_level(logging.TRACE, logger='ultrasync'):
+            uobj = UltraSync()
+            assert uobj.login()
+
+        assert uobj.session_id
+        assert 'response:' in caplog.text
+        assert uobj.session_id not in caplog.text
+        assert '***' in caplog.text
+
+    finally:
+        logging.disable(logging.CRITICAL)
